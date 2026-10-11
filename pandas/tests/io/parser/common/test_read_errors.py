@@ -66,6 +66,36 @@ def test_empty_sep(pyarrow_parser_only):
         parser.read_csv(StringIO(data), sep="")
 
 
+@pytest.mark.parametrize("on_bad_lines", ["error", "skip"])
+def test_names_longer_than_first_row(pyarrow_parser_only, on_bad_lines):
+    # GH#71034 pyarrow takes the number of columns from the first row of the
+    #  file, so ``names`` cannot widen it the way the C and python engines do;
+    #  previously raised a pyarrow error quoting the first full row, or a
+    #  "Length mismatch" ValueError with on_bad_lines="skip"
+    parser = pyarrow_parser_only
+    data = "a,b\n1,2,3,4\n"
+
+    msg = "read 2 columns from the first row of the file but 4 names were passed"
+    with pytest.raises(ParserError, match=msg):
+        parser.read_csv(
+            StringIO(data),
+            header=None,
+            names=["w", "x", "y", "z"],
+            on_bad_lines=on_bad_lines,
+        )
+
+
+def test_names_match_first_row_bad_line(pyarrow_parser_only):
+    # GH#71034 the explanation is only added when ``names`` disagrees with
+    #  the width of the first row
+    parser = pyarrow_parser_only
+    data = "a,b\n1,2,3,4\n"
+
+    with pytest.raises(ParserError, match="Expected 2 columns, got 4") as excinfo:
+        parser.read_csv(StringIO(data), header=None, names=["a", "b"])
+    assert "first row of the file" not in str(excinfo.value)
+
+
 def test_bad_stream_exception(all_parsers, datapath):
     # see gh-13652
     #

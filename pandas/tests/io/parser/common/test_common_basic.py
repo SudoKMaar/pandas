@@ -972,12 +972,17 @@ def test_short_single_line(all_parsers):
     tm.assert_frame_equal(result, expected)
 
 
-@xfail_pyarrow  # ValueError: Length mismatch: Expected axis has 2 elements
 def test_short_multi_line(all_parsers):
     # GH 47566
     parser = all_parsers
     columns = ["a", "b", "c"]
     data = "1,2\n1,2"
+    if parser.engine == "pyarrow":
+        # GH#71034 pyarrow takes the number of columns from the first row
+        msg = "read 2 columns from the first row of the file but 3 names"
+        with pytest.raises(ParserError, match=msg):
+            parser.read_csv(StringIO(data), header=None, names=columns)
+        return
     result = parser.read_csv(StringIO(data), header=None, names=columns)
     expected = pd.DataFrame({"a": [1, 1], "b": [2, 2], "c": [np.nan, np.nan]})
     tm.assert_frame_equal(result, expected)

@@ -1524,6 +1524,7 @@ three engines:
    "``converters``","yes","yes","no"
    "``quoting``, ``dialect``","yes","yes","no"
    "``na_filter``","yes","yes","no"
+   "``names`` longer than the first row (missing fields read as ``NaN``)","yes","yes","no"
 
 Where possible, pandas uses the C parser (specified as ``engine='c'``), but
 it may fall back to Python if C-unsupported options are specified: passing an
@@ -1531,6 +1532,12 @@ option only the python engine supports produces a ``ParserWarning`` unless
 the python engine is selected explicitly with ``engine='python'``. Selecting
 the C engine explicitly instead raises a ``ValueError``, as does passing an
 option unsupported by the pyarrow engine together with ``engine='pyarrow'``.
+
+The pyarrow engine takes the number of columns from the first row of the file
+rather than from ``names``, and rows with a different number of fields are
+handled by ``on_bad_lines``. Passing more ``names`` than the first row has
+fields raises a ``ParserError``; use ``engine='c'`` or ``engine='python'``,
+which fill the missing fields with ``NaN``, to read such files.
 
 .. _io.csv.parallel:
 

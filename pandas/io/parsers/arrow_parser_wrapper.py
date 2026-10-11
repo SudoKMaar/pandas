@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+import re
 from typing import (
     TYPE_CHECKING,
     cast,
@@ -364,6 +365,17 @@ class ArrowParserWrapper(ParserBase):
         names = mangle_dupe_names(names, unnamed_col_indices, self.dtype)
         return names, {names[i] for i in unnamed_col_indices}
 
+    def _names_width_message(self, num_cols: int) -> str:
+        # GH#71034 pyarrow takes the number of columns from the first row and
+        # cannot pad short rows the way the other engines do
+        return (
+            f"The 'pyarrow' engine read {num_cols} columns from the first row "
+            f"of the file but {len(self.names)} names were passed. The number "
+            "of columns is taken from the first row, not from 'names', and rows "
+            "with a different number of fields are handled by 'on_bad_lines'. "
+            "Use engine='c' or engine='python' to read files with ragged rows."
+        )
+
     def _adjust_column_names(self, table: pa.Table) -> bool:
         num_cols = len(table.columns)
         multi_index_named = True
@@ -382,6 +394,11 @@ class ArrowParserWrapper(ParserBase):
                     "Number of passed names did not match number of "
                     "header fields in the file"
                 )
+            if len(self.names) > num_cols:
+                # GH#71034 the other engines pad the short rows with NaN;
+                # pyarrow cannot, so explain instead of failing later with
+                # "Length mismatch" when the names are assigned
+                raise ParserError(self._names_width_message(num_cols))
             if len(self.names) < num_cols:
                 # GH#65862 Leading columns not covered by names form the index,
                 # as with other engines. Pad the names to the expected length;
@@ -570,6 +587,16 @@ class ArrowParserWrapper(ParserBase):
             # pyarrow engine matches the "c" and "python" engines.
             if "Empty CSV file" in str(err):
                 raise EmptyDataError("No columns to parse from file") from err
+            if self.names is not None:
+                # GH#71034 a row with as many fields as ``names`` is rejected
+                # when the first row is shorter; say why rather than only
+                # quoting the rejected row. An invalid_row_handler would give
+                # this information directly but slows down every read.
+                match = re.search(r"Expected (\d+) columns, got \d+", str(err))
+                if match is not None and int(match[1]) != len(self.names):
+                    raise ParserError(
+                        f"{err}. {self._names_width_message(int(match[1]))}"
+                    ) from err
             raise ParserError(err) from err
         except TypeError as err:
             # pyarrow can only read from a binary buffer; a text-mode file
